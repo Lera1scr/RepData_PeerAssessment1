@@ -1,25 +1,164 @@
----
-title: "Reproducible Research: Peer Assessment 1"
-output: 
-  html_document:
-    keep_md: true
----
+if(!file.exists("./data")){dir.create("./data")}
+fileUrl <- "https://d396qusza40orc.cloudfront.net/getdata%2Fprojectfiles%2FUCI%20HAR%20Dataset.zip"
+download.file(fileUrl,destfile="./data/Dataset.zip",method="curl")
+
+unzip(zipfile="./data/Dataset.zip",exdir="./data")
+
+path_rf <- file.path("./data" , "UCI HAR Dataset")
+files<-list.files(path_rf, recursive=TRUE)
+
+dataActivityTest  <- read.table(file.path(path_rf, "test" , "Y_test.txt" ),header = FALSE)
+dataActivityTrain <- read.table(file.path(path_rf, "train", "Y_train.txt"),header = FALSE)
+
+dataSubjectTrain <- read.table(file.path(path_rf, "train", "subject_train.txt"),header = FALSE)
+dataSubjectTest  <- read.table(file.path(path_rf, "test" , "subject_test.txt"),header = FALSE)
+
+dataFeaturesTest  <- read.table(file.path(path_rf, "test" , "X_test.txt" ),header = FALSE)
+dataFeaturesTrain <- read.table(file.path(path_rf, "train", "X_train.txt"),header = FALSE)
 
 
-## Loading and preprocessing the data
+dataSubject <- rbind(dataSubjectTrain, dataSubjectTest)
+dataActivity<- rbind(dataActivityTrain, dataActivityTest)
+dataFeatures<- rbind(dataFeaturesTrain, dataFeaturesTest)
+
+names(dataSubject)<-c("subject")
+names(dataActivity)<- c("activity")
+dataFeaturesNames <- read.table(file.path(path_rf, "features.txt"),head=FALSE)
+names(dataFeatures)<- dataFeaturesNames$V2
+
+dataCombine <- cbind(dataSubject, dataActivity)
+Data <- cbind(dataFeatures, dataCombine)
+
+subdataFeaturesNames<-dataFeaturesNames$V2[grep("mean\\(\\)|std\\(\\)", dataFeaturesNames$V2)]
+
+selectedNames<-c(as.character(subdataFeaturesNames), "subject", "activity" )
+Data<-subset(Data,select=selectedNames)
 
 
+activityLabels <- read.table(file.path(path_rf, "activity_labels.txt"),header = FALSE)
+Data$activity<-factor(Data$activity);
+Data$activity<- factor(Data$activity,labels=as.character(activityLabels$V2))
+names(Data)<-gsub("^t", "time", names(Data))
+names(Data)<-gsub("^f", "frequency", names(Data))
+names(Data)<-gsub("Acc", "Accelerometer", names(Data))
+names(Data)<-gsub("Gyro", "Gyroscope", names(Data))
+names(Data)<-gsub("Mag", "Magnitude", names(Data))
+names(Data)<-gsub("BodyBody", "Body", names(Data))
+library(plyr);
+Data2<-aggregate(. ~subject + activity, Data, mean)
+Data2<-Data2[order(Data2$subject,Data2$activity),]
+write.table(Data2, file = "tidydata.txt",row.name=FALSE)
 
-## What is mean total number of steps taken per day?
+install.packages("codebook")
+install.packages("remotes")
+remotes::install_github("*/codebook")
+library(codebook)
+new_codebook_rmd()
+
+library("data.table")
+library(ggplot2)
+
+#unzip database
+fileUrl <- "https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2Factivity.zip"
+download.file(fileUrl, destfile = paste0(getwd(), '/repdata%2Fdata%2Factivity.zip'),
+              method = "curl")
+unzip("repdata%2Fdata%2Factivity.zip", exdir = "data")
+
+#reading csv
+
+data_file <- read.csv(file = "activity.csv", header = TRUE)
+
+head(data_file)
+
+#remove NA value
+
+data<-data_file[with(data_file, { !(is.na(steps))}), ]
+head(data)
+
+#Calculate the total number of steps taken per day
+
+per_day<-group_by(data, date)
+steps_per_day<-summarize(per_day, total = sum(steps))
+head(steps_per_day)
+
+# histogram of the total number of steps taken each day
+ggplot(steps_per_day, aes(x = total)) +
+  geom_histogram(fill = "yellow", binwidth = 1000) +
+  labs(title = "Total number of steps taken each day", x = "Steps", y = "Frequency")
+
+#mean and median of the total number of steps taken per day
+summary(steps_per_day)
 
 
+#What is the average daily activity pattern?
 
-## What is the average daily activity pattern?
+#Make a time series plot (i.e. \color{red}{\verb|type = "l"|}type = "l") of the 5-minute interval (x-axis) and the average number of steps taken, averaged across all days (y-axis)
+
+intervalstep <- aggregate(steps~interval, data, mean)
+
+#time series plot
+plot(intervalstep$interval, intervalstep$steps, type='l', 
+     main="Average number of steps over all days", xlab="Interval", 
+     ylab="Average number of steps") 
+
+#Which 5-minute interval, on average across all the days in the dataset, contains the maximum number of steps?
+
+maxsteps<-which.max(intervalstep$step)
+intervalstep[maxsteps, ]
 
 
+#Imputing missing values
 
-## Imputing missing values
+#Calculate and report the total number of missing values in the dataset (i.e. the total number of rows with \color{red}{\verb|NA|}NAs)
+
+sum(is.na(data_file))
 
 
+#Devise a strategy for filling in all of the missing values in the dataset. The strategy does not need to be sophisticated. For example, you could use the mean/median for that day, or the mean for that 5-minute interval, etc.
+data_imputed <- data
+for (i in 1:nrow(data_imputed)) {
+  if (is.na(data_imputed$steps[i])) {
+    interval_value <- data_imputed$interval[i]
+    steps_value <- steps_by_interval[
+      steps_by_interval$interval == interval_value,]
+    data_imputed$steps[i] <- steps_value$steps
+  }
+}
+#Create a new dataset that is equal to the original dataset but with the missing data filled in.
+newdata<-aggregate(steps ~ date, data_imputed, sum)
+head(newdata)
 
-## Are there differences in activity patterns between weekdays and weekends?
+#Make a histogram of the total number of steps taken each day and Calculate and report the mean and median total number of steps taken per day. Do these values differ from the estimates from the first part of the assignment? What is the impact of imputing missing data on the estimates of the total daily number of steps?
+
+hist(newdata$steps,
+     main="Total number of steps per day", xlab="Total number of steps in a day") 
+
+mean(newdata$steps)
+median(newdata$steps)
+
+
+#Are there differences in activity patterns between weekdays and weekends?
+
+#Create a new factor variable in the dataset with two levels – “weekday” and “weekend” indicating whether a given date is a weekday or weekend day.
+
+newdata['type_of_day']<-weekdays(as.Date(newdata$date))
+newdata$type_of_day[newdata$type_of_day %in% c('Saturday', 'Sunday') ] <-"weekend"
+newdata$type_of_day[newdata$type_of_day !="weekend"] <-"weekday"
+
+newdata$type_of_day<-as.factor(newdata$type_of_day)
+
+newdata_interval<-sum(aggregate(steps~interval, data, mean))
+
+plot(data$interval,
+      newdata$steps, 
+      data = newdata_interval, 
+      type = 'l', 
+      geom=c("line"),
+      xlab = "Interval", 
+      ylab = "Number of steps", 
+      main = "") +
+  facet_wrap(~ type_of_day, ncol = 1)
+head(newdata)
+
+knit2html(PA1)
+
